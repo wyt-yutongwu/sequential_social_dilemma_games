@@ -7,6 +7,7 @@ from social_dilemmas.envs.map_env import MapEnv
 from social_dilemmas.maps import HARVEST_MAP
 
 APPLE_RADIUS = 2
+TIME_OUT_DURATION = 25
 
 # Add custom actions to the agent
 _HARVEST_ACTIONS = {"FIRE": 5}  # length of firing range
@@ -56,8 +57,9 @@ class HarvestEnv(MapEnv):
             spawn_point = self.spawn_point()
             rotation = self.spawn_rotation()
             grid = map_with_agents
-            agent = HarvestAgent(agent_id, spawn_point, rotation, grid, view_len=HARVEST_VIEW_SIZE)
+            agent = HarvestAgent(agent_id, spawn_point, rotation, grid, view_len=HARVEST_VIEW_SIZE, time_out_duration=TIME_OUT_DURATION)
             self.agents[agent_id] = agent
+        # print("agent 0", self.agents["agent-0"])
 
     def custom_reset(self):
         """Initialize the walls and the apples"""
@@ -73,7 +75,14 @@ class HarvestEnv(MapEnv):
             fire_char=b"F",
         )
         return updates
-
+    
+    # def custom_step(self, actions):
+    #     """Environment step: executes actions and advances time."""
+    #     obs, rewards, dones, infos = super().step(actions)
+    #     for agent in self.agents.values():
+    #         agent.step()  # <-- decrement timeout
+    #     return obs, rewards, dones, infos
+    
     def custom_map_update(self):
         """See parent class"""
         # spawn the apples

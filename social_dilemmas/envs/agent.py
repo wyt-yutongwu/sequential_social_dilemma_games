@@ -159,25 +159,34 @@ HARVEST_ACTIONS.update({7: "FIRE"})  # Fire a penalty beam
 
 
 class HarvestAgent(Agent):
-    def __init__(self, agent_id, start_pos, start_orientation, full_map, view_len):
+    def __init__(self, agent_id, start_pos, start_orientation, full_map, view_len, time_out_duration):
         self.view_len = view_len
         super().__init__(agent_id, start_pos, start_orientation, full_map, view_len, view_len)
         self.update_agent_pos(start_pos)
         self.update_agent_rot(start_orientation)
+        self.time_out_remaining = 0
+        self.time_out_duration = time_out_duration
 
     # Ugh, this is gross, this leads to the actions basically being
     # defined in two places
     def action_map(self, action_number):
         """Maps action_number to a desired action in the map"""
         return HARVEST_ACTIONS[action_number]
+    
+    def step(self):
+        """Called at every timestep; decrement timeout counter if active"""
+        if self.time_out_remaining > 0:
+            self.time_out_remaining -= 1
 
     def hit(self, char):
         if char == b"F":
-            self.reward_this_turn -= 50
+            self.time_out_remaining = self.time_out_duration
+            # self.reward_this_turn -= 50
 
     def fire_beam(self, char):
         if char == b"F":
-            self.reward_this_turn -= 1
+            self.reward_this_turn += 0
+            # self.reward_this_turn -= 1
 
     def get_done(self):
         return False

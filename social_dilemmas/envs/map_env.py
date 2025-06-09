@@ -328,6 +328,7 @@ class MapEnv(MultiAgentEnv):
 
         observations = {}
         for agent in self.agents.values():
+            agent.step()
             agent.full_map = map_with_agents
             rgb_arr = self.color_view(agent)
             # concatenate on the prev_actions to the observations

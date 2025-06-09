@@ -1,6 +1,9 @@
 import argparse
-
+import ray
 import gym
+import gymnasium
+# from gymnasium.spaces import Discrete
+
 import supersuit as ss
 import torch
 import torch.nn.functional as F
@@ -8,8 +11,16 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
 from torch import nn
+from supersuit import dtype_v0
+import numpy as np
+from social_dilemmas.envs.pettingzoo_env import parallel_env, CustomStepWrapper
+from pettingzoo.utils.env import ParallelEnv
+from stable_baselines3.common.vec_env import VecEnvWrapper
 
-from social_dilemmas.envs.pettingzoo_env import parallel_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
+# from social_dilemmas.envs.pettingzoo_env import parallel_env
+# from supersuit import pettingzoo_env_to_vec_env_v1
+
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -80,7 +91,7 @@ class CustomCNN(BaseFeaturesExtractor):
 
     def __init__(
         self,
-        observation_space: gym.spaces.Box,
+        observation_space: gymnasium.spaces.Box,
         features_dim=128,
         view_len=7,
         num_frames=6,
@@ -108,6 +119,27 @@ class CustomCNN(BaseFeaturesExtractor):
         features = F.relu(self.fc1(features))
         features = F.relu(self.fc2(features))
         return features
+    
+
+class VecActionCastWrapper(VecEnvWrapper):
+    def __init__(self, venv):
+        super().__init__(venv)
+
+    def reset(self):
+        return self.venv.reset()
+
+    def step_async(self, actions):
+        # Force casting to uint8 to match DiscreteWithDType
+        actions = actions.astype(np.uint8)
+        self.venv.step_async(actions)
+
+    def step_wait(self):
+        obs, rew, terminations, truncations, infos = self.venv.step_wait()
+
+        # Convert to single done flag
+        dones = np.array([t or u for t, u in zip(terminations, truncations)], dtype=np.bool_)
+        return obs, rew, dones, infos
+
 
 
 def main(args):
@@ -148,12 +180,22 @@ def main(args):
         alpha=alpha,
         beta=beta,
     )
+    env = CustomStepWrapper(env, max_cycles=rollout_len)  # After Supersuit wraps
+
     env = ss.observation_lambda_v0(env, lambda x, _: x["curr_obs"], lambda s: s["curr_obs"])
+
+    env = dtype_v0(env, np.uint8)
+
     env = ss.frame_stack_v1(env, num_frames)
+
     env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(
-        env, num_vec_envs=num_envs, num_cpus=num_cpus, base_class="stable_baselines3"
+        env, num_vec_envs=num_envs, num_cpus=0, base_class="stable_baselines3"
     )
+    original_reset = env.reset  # Save original
+    env.reset = lambda **kwargs: original_reset(**kwargs)[0]  
+    env = VecActionCastWrapper(env) 
+
     env = VecMonitor(env)
 
     policy_kwargs = dict(
