@@ -43,6 +43,9 @@ class Agent(object):
         self.col_size = col_size
         self.reward_this_turn = 0
         self.prev_visible_agents = None
+        self.time_out_this_turn = 0
+        self.reward_so_far = 0
+        self.active = True
 
     @property
     def action_space(self):
@@ -83,8 +86,13 @@ class Agent(object):
 
     def compute_reward(self):
         reward = self.reward_this_turn
+        self.reward_so_far += reward
         self.reward_this_turn = 0
-        return reward
+        return reward, self.reward_so_far
+
+    def compute_time_out(self):
+        time_out = self.time_out_this_turn
+        return time_out
 
     def set_pos(self, new_pos):
         self.pos = np.array(new_pos)
@@ -173,17 +181,23 @@ class HarvestAgent(Agent):
         """Maps action_number to a desired action in the map"""
         return HARVEST_ACTIONS[action_number]
     
-    def step(self):
-        """Called at every timestep; decrement timeout counter if active"""
+    def update_time_out(self):
         if self.time_out_remaining > 0:
             self.time_out_remaining -= 1
+            if self.time_out_remaining == 0:
+                self.active = True
 
     def hit(self, char):
+        if self.time_out_remaining > 0:
+            print("ERROR")
         if char == b"F":
             self.time_out_remaining = self.time_out_duration
-            # self.reward_this_turn -= 50
+            self.time_out_this_turn += self.time_out_duration
+            self.active = False
 
     def fire_beam(self, char):
+        if self.time_out_remaining > 0:
+            print("Error in fire beam")
         if char == b"F":
             self.reward_this_turn += 0
             # self.reward_this_turn -= 1

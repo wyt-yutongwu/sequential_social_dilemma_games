@@ -158,6 +158,13 @@ class MapEnv(MultiAgentEnv):
                     shape=(self.num_agents - 1,),
                     dtype=np.uint8,
                 ),
+                # Implement reputation
+                "agent_reputations": Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_agents - 1,),
+                    dtype=np.float32,
+                ),
             }
         obs_space = Dict(obs_space)
         # Change dtype so that ray can put all observations into one flat batch
@@ -230,12 +237,19 @@ class MapEnv(MultiAgentEnv):
         dones: dict indicating whether each agent is done
         info: dict to pass extra info to gym
         """
-
+        # Update time_out time for the agent
+        for agent in self.agents.values():
+            agent.update_time_out()
         self.beam_pos = []
         agent_actions = {}
+        # Only append action if the agent is active
         for agent_id, action in actions.items():
-            agent_action = self.agents[agent_id].action_map(action)
-            agent_actions[agent_id] = agent_action
+            agent = self.agents[agent_id]
+            if agent.active:
+                agent_action = agent.action_map(action)
+                agent_actions[agent_id] = agent_action
+            else:
+                agent_actions[agent_id] = None
 
         # Remove agents from color map
         for agent in self.agents.values():
@@ -285,9 +299,16 @@ class MapEnv(MultiAgentEnv):
                 agent.prev_visible_agents = visible_agents
             else:
                 observations[agent.agent_id] = {"curr_obs": rgb_arr}
-            rewards[agent.agent_id] = agent.compute_reward()
+            # Return rewards so far, and cumulative timed out time
+            reward, reward_so_far = agent.compute_reward()
+            rewards[agent.agent_id] = reward
             dones[agent.agent_id] = agent.get_done()
-            infos[agent.agent_id] = {}
+            time_out = agent.compute_time_out()
+            infos[agent.agent_id] = {
+                "total_time_out_steps": time_out,
+                "reward_this_episode": reward_so_far
+            }
+            
 
         if self.use_collective_reward:
             collective_reward = sum(rewards.values())
@@ -304,6 +325,7 @@ class MapEnv(MultiAgentEnv):
             rewards = temp_rewards
 
         dones["__all__"] = np.any(list(dones.values()))
+
         return observations, rewards, dones, infos
 
     def reset(self):
@@ -328,7 +350,7 @@ class MapEnv(MultiAgentEnv):
 
         observations = {}
         for agent in self.agents.values():
-            agent.step()
+            # agent.step()
             agent.full_map = map_with_agents
             rgb_arr = self.color_view(agent)
             # concatenate on the prev_actions to the observations
@@ -503,6 +525,9 @@ class MapEnv(MultiAgentEnv):
         reserved_slots = []
         for agent_id, action in agent_actions.items():
             agent = self.agents[agent_id]
+            # if agent is timed out, no action is taken
+            if not agent.active:
+                continue
             selected_action = self.all_actions[action]
             # TODO(ev) these two parts of the actions
             if "MOVE" in action or "STAY" in action:
@@ -518,8 +543,8 @@ class MapEnv(MultiAgentEnv):
 
         # now do the conflict resolution part of the process
 
-        # helpful for finding the agent in the conflicting slot
-        agent_by_pos = {tuple(agent.pos): agent.agent_id for agent in self.agents.values()}
+        # helpful for finding the agent in the conflicting slot, ignore timed-out agents
+        agent_by_pos = {tuple(agent.pos): agent.agent_id for agent in self.agents.values() if agent.active}
 
         # agent moves keyed by ids
         agent_moves = {}
@@ -628,7 +653,8 @@ class MapEnv(MultiAgentEnv):
                 moves_copy = agent_moves.copy()
                 del_keys = []
                 for agent_id, move in moves_copy.items():
-                    if agent_id in del_keys:
+                    # Check time out
+                    if agent_id in del_keys or not self.agents[agent_id].active:
                         continue
                     if move in self.agent_pos:
                         # find the agent that is currently at that spot and make sure
@@ -684,7 +710,11 @@ class MapEnv(MultiAgentEnv):
         """
         agent_ids = list(agent_actions.keys())
         np.random.shuffle(agent_ids)
-        for agent_id in agent_ids:
+        # Check if the agent is timed-out
+        for agent_id in agent_ids:        
+            agent = self.agents[agent_id]
+            if not agent.active:
+                continue
             action = agent_actions[agent_id]
             # check its not a move based action
             if "MOVE" not in action and "STAY" not in action and "TURN" not in action:
@@ -798,10 +828,12 @@ class MapEnv(MultiAgentEnv):
 
                     # agents absorb beams
                     # activate the agents hit function if needed
+                    # If agent is timed-out, will not get hit again
                     if [next_cell[0], next_cell[1]] in self.agent_pos:
                         agent_id = agent_by_pos[(next_cell[0], next_cell[1])]
-                        self.agents[agent_id].hit(fire_char)
-                        break
+                        if self.agents[agent_id].active:
+                            self.agents[agent_id].hit(fire_char)
+                            break
 
                     # check if the cell blocks beams. For example, waste blocks beams.
                     if self.world_map[next_cell[0], next_cell[1]] in blocking_cells:
@@ -908,7 +940,8 @@ class MapEnv(MultiAgentEnv):
         other_agent_pos = [
             self.agents[other_agent_id].pos
             for other_agent_id in sorted(self.agents.keys())
-            if other_agent_id != agent_id
+            # Agent is not visible to others if timed-out
+            if other_agent_id != agent_id and self.agents[other_agent_id].active
         ]
         return np.array(
             [

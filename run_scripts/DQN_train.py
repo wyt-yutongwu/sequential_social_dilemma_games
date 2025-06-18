@@ -19,6 +19,8 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 # from supersuit import pettingzoo_env_to_vec_env_v1
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3 import DQN
+from stable_baselines3.common.monitor import Monitor
+
 torch.cuda.set_device(2)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -229,37 +231,40 @@ def main(args):
     env = ss.frame_stack_v1(env, num_frames)
 
     env = ss.pettingzoo_env_to_vec_env_v1(env)
-    env = ss.concat_vec_envs_v1(
-        env, num_vec_envs=num_envs, num_cpus=0, base_class="stable_baselines3"
-    )
-    original_reset = env.reset  # Save original
+    # env = ss.concat_vec_envs_v1(
+    #     env, num_vec_envs=num_envs, num_cpus=0, base_class="stable_baselines3"
+    # )
+    original_reset = env.reset  
     env.reset = lambda **kwargs: original_reset(**kwargs)[0]  
     env = VecActionCastWrapper(env) 
 
-    env = VecMonitor(env)
+    env = Monitor(env)
+
 
     policy_kwargs = dict(
         features_extractor_class=CustomCNN,
-        features_extractor_kwargs=dict(
-            features_dim=features_dim, num_frames=num_frames, fcnet_hiddens=fcnet_hiddens
-        ),
-        net_arch=[features_dim],
+            features_extractor_kwargs=dict(
+                features_dim=features_dim,
+                num_frames=num_frames,
+                fcnet_hiddens=fcnet_hiddens
+            ),
+            net_arch=[features_dim],
     )
 
     tensorboard_log = "./results/sb3/cleanup_ppo_paramsharing"
 
-    model = PPO(
+    model = DQN(
         "CnnPolicy",
         env=env,
         learning_rate=lr,
-        n_steps=rollout_len,
+        buffer_size=100_000,  # DQN uses replay buffer
+        learning_starts=1_000,
         batch_size=batch_size,
-        n_epochs=n_epochs,
         gamma=gamma,
-        gae_lambda=gae_lambda,
-        ent_coef=ent_coef,
-        max_grad_norm=grad_clip,
-        target_kl=target_kl,
+        train_freq=4,  # how often to update
+        target_update_interval=10_000,
+        exploration_fraction=0.1,
+        exploration_final_eps=0.05,
         policy_kwargs=policy_kwargs,
         tensorboard_log=tensorboard_log,
         verbose=verbose,

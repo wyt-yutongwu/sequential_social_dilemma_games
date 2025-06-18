@@ -76,13 +76,7 @@ class HarvestEnv(MapEnv):
         )
         return updates
     
-    # def custom_step(self, actions):
-    #     """Environment step: executes actions and advances time."""
-    #     obs, rewards, dones, infos = super().step(actions)
-    #     for agent in self.agents.values():
-    #         agent.step()  # <-- decrement timeout
-    #     return obs, rewards, dones, infos
-    
+
     def custom_map_update(self):
         """See parent class"""
         # spawn the apples

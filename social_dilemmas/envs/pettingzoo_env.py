@@ -125,6 +125,7 @@ class CustomStepWrapper(ParallelEnv):
         self.max_cycles = max_cycles
         self.possible_agents = env.possible_agents
         self.agents = self.possible_agents[:]  
+        # self.render_mode = getattr(env, "render_mode", None)
         self.observation_spaces = env.observation_spaces
         self.action_spaces = env.action_spaces
         self.num_cycles = 0
