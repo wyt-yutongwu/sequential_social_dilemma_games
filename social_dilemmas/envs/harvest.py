@@ -67,13 +67,13 @@ class HarvestEnv(MapEnv):
             self.single_update_map(apple_point[0], apple_point[1], b"A")
 
     def custom_action(self, agent, action):
-        agent.fire_beam(b"F")
-        updates = self.update_map_fire(
+        updates, hit_agent_rep = self.update_map_fire(
             agent.pos.tolist(),
             agent.get_orientation(),
             self.all_actions["FIRE"],
             fire_char=b"F",
         )
+        agent.fire_beam(b"F", hit_agent_rep)
         return updates
     
 

@@ -69,6 +69,7 @@ class MapEnv(MultiAgentEnv):
         inequity_averse_reward=False,
         alpha=0.0,
         beta=0.0,
+        counter = 0
     ):
         """
 
@@ -86,6 +87,7 @@ class MapEnv(MultiAgentEnv):
         return_agent_actions: bool
             If true, the observation space will include the actions of other agents
         """
+        self.counter = 0
         self.num_agents = num_agents
         self.base_map = self.ascii_to_numpy(ascii_map)
         self.view_len = view_len
@@ -125,7 +127,7 @@ class MapEnv(MultiAgentEnv):
                 elif self.base_map[row, col] == b"@":
                     self.wall_points.append([row, col])
         self.setup_agents()
-
+        
     @property
     def observation_space(self):
         obs_space = {
@@ -160,10 +162,10 @@ class MapEnv(MultiAgentEnv):
                 ),
                 # Implement reputation
                 "agent_reputations": Box(
-                    low=0.0,
-                    high=1.0,
+                    low=-np.inf,
+                    high=np.inf,
                     shape=(self.num_agents - 1,),
-                    dtype=np.float32,
+                    dtype=np.int,
                 ),
             }
         obs_space = Dict(obs_space)
@@ -290,11 +292,13 @@ class MapEnv(MultiAgentEnv):
                     [actions[key] for key in sorted(actions.keys()) if key != agent.agent_id]
                 ).astype(np.uint8)
                 visible_agents = self.find_visible_agents(agent.agent_id)
+                agent_reputation = self.find_other_agents_reputation(agent.agent_id)
                 observations[agent.agent_id] = {
                     "curr_obs": rgb_arr,
                     "other_agent_actions": prev_actions,
                     "visible_agents": visible_agents,
                     "prev_visible_agents": agent.prev_visible_agents,
+                    "agent_reputations": agent_reputation
                 }
                 agent.prev_visible_agents = visible_agents
             else:
@@ -302,11 +306,13 @@ class MapEnv(MultiAgentEnv):
             # Return rewards so far, and cumulative timed out time
             reward, reward_so_far = agent.compute_reward()
             rewards[agent.agent_id] = reward
+            reputation = agent.compute_reputation()
             dones[agent.agent_id] = agent.get_done()
             time_out = agent.compute_time_out()
             infos[agent.agent_id] = {
                 "total_time_out_steps": time_out,
-                "reward_this_episode": reward_so_far
+                "reward_this_episode": reward_so_far,
+                "reputation": reputation
             }
             
 
@@ -325,7 +331,8 @@ class MapEnv(MultiAgentEnv):
             rewards = temp_rewards
 
         dones["__all__"] = np.any(list(dones.values()))
-
+        # self.render("/home/yw180/map_img/"+str(self.counter)+".png")
+        # self.counter += 1
         return observations, rewards, dones, infos
 
     def reset(self):
@@ -377,7 +384,7 @@ class MapEnv(MultiAgentEnv):
 
     @property
     def agent_pos(self):
-        return [agent.pos.tolist() for agent in self.agents.values()]
+        return [agent.pos.tolist() for agent in self.agents.values() if agent.active]
 
     def get_map_with_agents(self):
         """Gets a version of the environment map where generic
@@ -812,6 +819,7 @@ class MapEnv(MultiAgentEnv):
             raise NotImplementedError()
         firing_points = []
         updates = []
+        hit_agent_rep = None
         for pos in firing_pos:
             next_cell = pos + firing_direction
             for i in range(fire_len):
@@ -832,6 +840,7 @@ class MapEnv(MultiAgentEnv):
                     if [next_cell[0], next_cell[1]] in self.agent_pos:
                         agent_id = agent_by_pos[(next_cell[0], next_cell[1])]
                         if self.agents[agent_id].active:
+                            hit_agent_rep = self.agents[agent_id].compute_reputation()
                             self.agents[agent_id].hit(fire_char)
                             break
 
@@ -846,7 +855,7 @@ class MapEnv(MultiAgentEnv):
                     break
 
         self.beam_pos += firing_points
-        return updates
+        return updates, hit_agent_rep
 
     def spawn_point(self):
         """Returns a randomly selected spawn point."""
@@ -951,6 +960,37 @@ class MapEnv(MultiAgentEnv):
                 for agent_tup in other_agent_pos
             ],
             dtype=np.uint8,
+        )
+
+    def find_other_agents_reputation(self, agent_id):
+        """Return the reputation of all other agents within the observation window, if not observable, return 0"""
+        agent_pos = self.agents[agent_id].pos
+        upper_lim = int(agent_pos[0] + self.agents[agent_id].row_size)
+        lower_lim = int(agent_pos[0] - self.agents[agent_id].row_size)
+        left_lim = int(agent_pos[1] - self.agents[agent_id].col_size)
+        right_lim = int(agent_pos[1] + self.agents[agent_id].col_size)
+
+        # keep this sorted so the visibility matrix is always in order
+        other_agent_pos = [
+            self.agents[other_agent_id].pos
+            for other_agent_id in sorted(self.agents.keys())
+            # Agent is not visible to others if timed-out
+            if other_agent_id != agent_id and self.agents[other_agent_id].active
+        ]
+        other_agent_reputation = [
+            self.agents[other_agent_id].reputation
+            for other_agent_id in sorted(self.agents.keys())
+            # Agent is not visible to others if timed-out
+            if other_agent_id != agent_id and self.agents[other_agent_id].active
+        ]
+
+        return np.array(
+            [
+                other_agent_reputation[i]
+                if (lower_lim <= other_agent_pos[i][0] <= upper_lim and left_lim <= other_agent_pos[i][1] <= right_lim)
+                else 0
+                for i in range(0, len(other_agent_pos))
+            ],
         )
 
     @staticmethod

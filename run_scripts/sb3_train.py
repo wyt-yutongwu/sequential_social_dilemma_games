@@ -19,7 +19,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 # from supersuit import pettingzoo_env_to_vec_env_v1
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3 import DQN
-torch.cuda.set_device(2)
+torch.cuda.set_device(3)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 
@@ -84,40 +84,24 @@ class CustomInfoLoggerCallback(BaseCallback):
         super().__init__(verbose)
         self.time_out_list = np.zeros(60)
         self.reward_list = np.zeros(60)
+        self.rep_list = np.zeros(60)
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
-        # print("len of info", len(infos))
-        # time_out_list = list()
-        # reward_list = list()
         for i, info in enumerate(infos):
-            # time_out = float(info.get('total_time_out_steps', 0))
-            # reward = float(info.get('reward_this_episode', 0))
-            # self.logger.record(f'custom/env_{i}/time_out', time_out)
-            # self.logger.record(f'custom/env_{i}/reward', reward)
             if 'total_time_out_steps' in info:
-                # time_out_list.append(info['total_time_out_steps'])
                 self.time_out_list[i] = info['total_time_out_steps']
-                # self.logger.record('custom/total_time_out_steps', info['total_time_out_steps'])
-            # else:
-            #     time_out_list.append(0)
             if 'reward_this_episode' in info:
-                # reward_list.append(info['reward_this_episode'])
                 self.reward_list[i] = info['reward_this_episode']
-                # self.logger.record('custom/reward_this_episode', info['reward_this_episode'])
-            # else:
-            #     reward_list.append(0)
-                # print("appending 0", info)
-        # for i, val in enumerate(time_out_list):
-        #     self.logger.record(f'custom/agent_{i}/time_out', float(val),exclude=None)
-        # for i, val in enumerate(reward_list):
-        #     self.logger.record(f'custom/agent_{i}/reward', float(val))
+            if 'reputation' in info:
+                self.rep_list[i] = info['reputation']
         return True
     
     def _on_rollout_end(self):
         for i in range(0, len(self.reward_list)):
             self.logger.record(f'custom/agent_{i}/reward', float(self.reward_list[i]))
             self.logger.record(f'custom/agent_{i}/time_out', float(self.time_out_list[i]))
+            self.logger.record(f'custom/agent_{i}/reputation', float(self.rep_list[i]))
         return True
 
 

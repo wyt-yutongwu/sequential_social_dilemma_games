@@ -46,6 +46,7 @@ class Agent(object):
         self.time_out_this_turn = 0
         self.reward_so_far = 0
         self.active = True
+        self.reputation = 0
 
     @property
     def action_space(self):
@@ -93,6 +94,9 @@ class Agent(object):
     def compute_time_out(self):
         time_out = self.time_out_this_turn
         return time_out
+
+    def compute_reputation(self):
+        return self.reputation
 
     def set_pos(self, new_pos):
         self.pos = np.array(new_pos)
@@ -195,12 +199,18 @@ class HarvestAgent(Agent):
             self.time_out_this_turn += self.time_out_duration
             self.active = False
 
-    def fire_beam(self, char):
+    def fire_beam(self, char, hit_agent_rep):
         if self.time_out_remaining > 0:
             print("Error in fire beam")
+        # deducts reputation when a good agent (reputation >= 0) is hit
+        # increase reputation when a bad agent (reputation < 0) is hit 
         if char == b"F":
-            self.reward_this_turn += 0
-            # self.reward_this_turn -= 1
+            if hit_agent_rep is None:
+                return
+            elif hit_agent_rep >= 0:
+                self.reputation -= 1
+            else:
+                self.reputation += 1
 
     def get_done(self):
         return False
