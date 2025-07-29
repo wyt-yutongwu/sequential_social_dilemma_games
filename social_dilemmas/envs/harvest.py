@@ -4,7 +4,7 @@ from numpy.random import rand
 from social_dilemmas.envs.agent import HarvestAgent
 from social_dilemmas.envs.gym.discrete_with_dtype import DiscreteWithDType
 from social_dilemmas.envs.map_env import MapEnv
-from social_dilemmas.maps import HARVEST_MAP
+from social_dilemmas.maps import HARVEST_MAP, HARVEST_TEST_MAP
 
 APPLE_RADIUS = 2
 TIME_OUT_DURATION = 25
@@ -25,6 +25,7 @@ class HarvestEnv(MapEnv):
         return_agent_actions=False,
         use_collective_reward=False,
         inequity_averse_reward=False,
+        use_reputation = False,
         alpha=0.0,
         beta=0.0,
     ):

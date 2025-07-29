@@ -14,11 +14,8 @@ import numpy as np
 from social_dilemmas.envs.pettingzoo_env import parallel_env, CustomStepWrapper
 from stable_baselines3.common.vec_env import VecEnvWrapper
 
-from stable_baselines3.common.vec_env import SubprocVecEnv
-# from social_dilemmas.envs.pettingzoo_env import parallel_env
-# from supersuit import pettingzoo_env_to_vec_env_v1
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3 import DQN
+
 torch.cuda.set_device(3)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -75,6 +72,12 @@ def parse_args():
         type=float,
         default=0.05,
         help="Disadvantageous inequity aversion factor",
+    )
+    parser.add_argument(
+        "--use_reputation",
+        type=bool,
+        default=False,
+        help="Give agent other agents' reputation",
     )
     args = parser.parse_args()
     return args
@@ -176,6 +179,7 @@ def main(args):
     inequity_averse_reward = args.inequity_averse_reward
     alpha = args.alpha
     beta = args.beta
+    use_reputation = args.use_reputation
 
     # Training
     num_cpus = 4  # number of cpus
@@ -203,6 +207,7 @@ def main(args):
         inequity_averse_reward=inequity_averse_reward,
         alpha=alpha,
         beta=beta,
+        use_reputation = use_reputation
     )
     env = CustomStepWrapper(env, max_cycles=rollout_len)  # After Supersuit wraps
 

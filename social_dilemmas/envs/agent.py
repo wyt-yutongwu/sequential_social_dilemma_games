@@ -216,6 +216,8 @@ class HarvestAgent(Agent):
         return False
 
     def consume(self, char):
+        if not self.active:
+            return char
         """Defines how an agent interacts with the char it is standing on"""
         if char == b"A":
             self.reward_this_turn += 1

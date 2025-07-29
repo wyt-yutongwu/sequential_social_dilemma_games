@@ -4,6 +4,15 @@
 # 'A' means apple spawn point
 # ' ' is empty space
 
+HARVEST_TEST_MAP = [
+    "@@@@@@@@",
+    "@PPAAAA@",
+    "@AAAAAA@",
+    "@AAAAAA@",
+    "@AAAAAA@",
+    "@@@@@@@@",
+]
+
 HARVEST_MAP = [
     "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
     "@ P   P      A    P AAAAA    P  A P  @",

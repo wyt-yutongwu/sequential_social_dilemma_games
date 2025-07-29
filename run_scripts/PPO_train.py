@@ -3,24 +3,20 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-from ray.rllib.core.columns import Columns
-from ray.rllib.algorithms.dqn.torch.default_dqn_torch_rl_module import (
-                DefaultDQNTorchRLModule,
-            )
+
 import argparse
 from ray.rllib.core.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
+from ray.rllib.algorithms.ppo import PPOConfig
 import torch
 from social_dilemmas.envs.pettingzoo_env import multi_agent_env
-
-from ray.rllib.algorithms.callbacks import RLlibCallback
-
 from ray.tune.registry import register_env
-from ray.rllib.algorithms.dqn import DQNConfig
+from ray.rllib.algorithms.callbacks import RLlibCallback
+from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import PPOTorchRLModule
 
 
-torch.cuda.set_device(1)
-device = torch.device("cuda")# if torch.cuda.is_available() else torch.device("cpu")
+torch.cuda.set_device(2)
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 
 
@@ -30,7 +26,7 @@ def parse_args():
         "--env-name",
         type=str,
         default="harvest",
-        choices=["harvest", "cleanup","harvest_test"],
+        choices=["harvest", "cleanup"],
         help="The SSD environment to use",
     )
     parser.add_argument(
@@ -93,8 +89,10 @@ class CustomLoggingCallback(RLlibCallback):
         self.ep_count += 1
     # Log custom information
     def on_episode_end(self, *, episode, metrics_logger, **kwargs):
+        # print("at episode end")
         for agent_id, agent_eps in episode.agent_episodes.items():
             info = agent_eps.get_infos()[-1]
+            # print(info)
             if info is None:
                 continue
             if "total_time_out_steps" in info:
@@ -103,6 +101,7 @@ class CustomLoggingCallback(RLlibCallback):
             if "reward_this_episode" in info:
                 rew = info["reward_this_episode"]
                 metrics_logger.log_value(f"{agent_id}/rew", value=rew, reduce='mean', window=1)
+
 
 def env_creator(config):
     env = multi_agent_env(
@@ -115,14 +114,15 @@ def env_creator(config):
         beta=config.get("beta", 0.05),
         use_reputation=config.get("use_reputation", False),
     )
+
     return env
+
 
 def policy_mapping_fn(agent_id, *args, **kwargs):
     idx = int(agent_id.split("-")[-1])  # assumes agent ids are like agent_0, agent_1...
     return f"policy-{idx}"
 
-
-def main(args):
+def main(args): 
     register_env("mapenv", env_creator)
     # Config
     env_name = args.env_name
@@ -173,7 +173,7 @@ def main(args):
 
 
     config = (
-        DQNConfig()
+        PPOConfig()
         .environment("mapenv", env_config={
             "env_name": env_name,
             "num_agents": num_agents,
@@ -187,49 +187,32 @@ def main(args):
         })    
         .env_runners(num_env_runners=4,
                      explore=True,
-                     rollout_fragment_length=1000,
-                    )
-        .learners(num_learners=1)
+                     )
         .framework("torch")
         .multi_agent(
             policies=policies,
             policy_mapping_fn=policy_mapping_fn,
         )
         .training(
-            replay_buffer_config={
-            "type": "MultiAgentReplayBuffer",   # Avoids concat logic
-            # "storage_unit": "episodes",    # Skip episode handling
-            # "replay_mode": "independent",
-            "capacity": 10000,
-            },
             lr=lr,
-            train_batch_size=batch_size,
             gamma=gamma,
+            kl_coeff=target_kl, train_batch_size_per_learner=batch_size
         )
 
         .rl_module(rl_module_spec=MultiRLModuleSpec(
-                rl_module_specs={p: RLModuleSpec(module_class=DefaultDQNTorchRLModule,
-                model_config={
-                    "conv_filters": [
-                        [32, [3, 3], 1],  # 32 filters, 3x3 kernel, stride 1
-                        [64, [3, 3], 1],  # 64 filters, 3x3 kernel, stride 1
-                    ],
-                    "conv_activation": "relu",
-                    "post_fcnet_hiddens": [256],
-                    "post_fcnet_activation": "relu",
-                }) for p in policies},
+                rl_module_specs={p: RLModuleSpec(module_class=PPOTorchRLModule,
+                                                 model_config={"fcnet_hiddens": [256],
+                                                                "fcnet_activation": "relu",}) for p in policies},
             ),
             )
         .callbacks(CustomLoggingCallback)
     )
-
-
     checkpoint_dir = os.path.abspath("checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
     algo = config.build_algo()
     for i in range(int(total_timesteps)):
         result = algo.train()
-        if i % 10 == 0:
+        if i % 100 == 0:
             print(i)
     save_path = os.path.join(checkpoint_dir, f"PPO_{args.env_name}_{i}")
     algo.save(save_path)
