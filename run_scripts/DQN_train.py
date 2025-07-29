@@ -197,9 +197,7 @@ def main(args):
         )
         .training(
             replay_buffer_config={
-            "type": "MultiAgentReplayBuffer",   # Avoids concat logic
-            # "storage_unit": "episodes",    # Skip episode handling
-            # "replay_mode": "independent",
+            "type": "MultiAgentReplayBuffer",  
             "capacity": 10000,
             },
             lr=lr,
@@ -211,8 +209,8 @@ def main(args):
                 rl_module_specs={p: RLModuleSpec(module_class=DefaultDQNTorchRLModule,
                 model_config={
                     "conv_filters": [
-                        [32, [3, 3], 1],  # 32 filters, 3x3 kernel, stride 1
-                        [64, [3, 3], 1],  # 64 filters, 3x3 kernel, stride 1
+                        [32, [3, 3], 1],  
+                        [64, [3, 3], 1],  
                     ],
                     "conv_activation": "relu",
                     "post_fcnet_hiddens": [256],
