@@ -143,15 +143,9 @@ class MapEnv(MultiAgentEnv):
                 low=0,
                 high=255,
                 shape=(2 * self.view_len + 1, 2 * self.view_len + 1, 3),
-                dtype=np.uint8,
-            )
-        }
-        obs_space = Box(
-                low=0,
-                high=255,
-                shape=(2 * self.view_len + 1, 2 * self.view_len + 1, 3),
                 dtype=np.float32,
             )
+        }
         
         if self.return_agent_actions:
             # Append the actions of other agents
@@ -183,23 +177,23 @@ class MapEnv(MultiAgentEnv):
                 #     dtype=np.float32,
                 # ),
             }
-        # obs_space = Dict(obs_space)
-        # total_dim = flatdim(obs_space)
+        obs_space = Dict(obs_space)
+        total_dim = flatdim(obs_space)
     
     # Create flattened observation space
     # We need to determine the appropriate low/high bounds for the flattened space
-        # flattened_obs_space = Box(
-        #     low=-np.inf,  # Use -inf for safety, or calculate actual bounds
-        #     high=np.inf,   # Use inf for safety, or calculate actual bounds
-        #     shape=(total_dim,),
-        #     dtype=np.float32,  # Use float32 for neural networks
-        # )
+        flattened_obs_space = Box(
+            low=-np.inf,  # Use -inf for safety, or calculate actual bounds
+            high=np.inf,   # Use inf for safety, or calculate actual bounds
+            shape=(total_dim,),
+            dtype=np.float32,  # Use float32 for neural networks
+        )
         
         # Change dtype so that ray can put all observations into one flat batch
         # with the correct dtype.
         # See DictFlatteningPreprocessor in ray/rllib/models/preprocessors.py.
         # obs_space.dtype = np.uint8
-        return obs_space
+        return flattened_obs_space
 
     def custom_reset(self):
         """Reset custom elements of the map. For example, spawn apples and build walls"""
@@ -338,8 +332,8 @@ class MapEnv(MultiAgentEnv):
                     }
                 agent.prev_visible_agents = visible_agents
             else:
-                # observations[agent.agent_id] = {"curr_obs": rgb_arr}
-                observations[agent.agent_id] = rgb_arr
+                observations[agent.agent_id] = {"curr_obs": rgb_arr}
+                # observations[agent.agent_id] = rgb_arr
             # Return rewards so far, and cumulative timed out time
             reward, reward_so_far = agent.compute_reward()
             rewards[agent.agent_id] = reward
@@ -375,14 +369,14 @@ class MapEnv(MultiAgentEnv):
 
         dones["__all__"] = np.any(list(dones.values()))
         episode_done = dones["__all__"]
-        # flat_obs = {}
-        # for agent in observations.keys():
-        #     flat_obs[agent] = flatten_observation(observations[agent])
+        flat_obs = {}
+        for agent in observations.keys():
+            flat_obs[agent] = flatten_observation(observations[agent])
         # Set truncated to match episode end, explicitly specifying truncation
         trunc = {agent_id: episode_done for agent_id in dones}
         trunc["__all__"] = episode_done
 
-        return observations, rewards, dones, trunc,infos
+        return flat_obs, rewards, dones, trunc,infos
 
     def reset(self):
         """Reset the environment.
@@ -420,9 +414,12 @@ class MapEnv(MultiAgentEnv):
                 }
                 agent.prev_visible_agents = visible_agents
             else:
-                observations[agent.agent_id] = rgb_arr#{"curr_obs": rgb_arr}
+                observations[agent.agent_id] = {"curr_obs": rgb_arr}
         info = {agent_id: {} for agent_id in observations}
-        return observations, info
+        flat_obs = {}
+        for agent in observations.keys():
+            flat_obs[agent] = flatten_observation(observations[agent])
+        return flat_obs, info
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -1066,7 +1063,9 @@ def flatten_observation(obs_dict):
         else:
             flattened_parts.append(np.array([value]).flatten())
     
-    return np.concatenate(flattened_parts)
+    ret_arr = np.concatenate(flattened_parts)
+    
+    return ret_arr
 
 def validate_obs_and_reward(obs, reward):
     if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):

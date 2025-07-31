@@ -18,11 +18,13 @@ from ray.rllib.algorithms.callbacks import RLlibCallback
 from ray.tune.registry import register_env
 from ray.rllib.algorithms.dqn import DQNConfig
 
+from custom_rl_mod import CustomCNNTorchRLModule
+from flatten_obs_env import FlattenDictObservationWrapper
 
 torch.cuda.set_device(1)
 device = torch.device("cuda")# if torch.cuda.is_available() else torch.device("cpu")
 
-
+HARVEST_VIEW_SIZE = 7
 
 def parse_args():
     parser = argparse.ArgumentParser("Stable-Baselines3 PPO with Parameter Sharing")
@@ -205,19 +207,39 @@ def main(args):
             gamma=gamma,
         )
 
+        # .rl_module(rl_module_spec=MultiRLModuleSpec(
+        #         rl_module_specs={p: RLModuleSpec(module_class=DefaultDQNTorchRLModule,
+        #         model_config={
+        #             "conv_filters": [
+        #                 [32, [3, 3], 1],  
+        #                 [64, [3, 3], 1],  
+        #             ],
+        #             "conv_activation": "relu",
+        #             "post_fcnet_hiddens": [256],
+        #             "post_fcnet_activation": "relu",
+        #         }) for p in policies},
+        #     ),
+        #     )
         .rl_module(rl_module_spec=MultiRLModuleSpec(
-                rl_module_specs={p: RLModuleSpec(module_class=DefaultDQNTorchRLModule,
+            rl_module_specs={p: RLModuleSpec(
+                module_class=CustomCNNTorchRLModule,
                 model_config={
-                    "conv_filters": [
-                        [32, [3, 3], 1],  
-                        [64, [3, 3], 1],  
-                    ],
-                    "conv_activation": "relu",
-                    "post_fcnet_hiddens": [256],
-                    "post_fcnet_activation": "relu",
-                }) for p in policies},
-            ),
-            )
+            # Custom configuration specific to your environment/module
+            "custom_model_config": {
+                "view_len": HARVEST_VIEW_SIZE,
+                "num_agents": num_agents,
+                "return_agent_actions": True,
+            },
+            # CNN configuration for image processing
+            "conv_filters": [[32, [3, 3], 1], [64, [3, 3], 1]],
+            "conv_activation": "relu",
+            # Agent feature processing configuration
+            "agent_fc_hiddens": [64],
+            # Post-processing configuration
+            "post_fcnet_hiddens": [256],
+            "post_fcnet_activation": "relu",
+        }) for p in policies},
+        ))
         .callbacks(CustomLoggingCallback)
     )
 

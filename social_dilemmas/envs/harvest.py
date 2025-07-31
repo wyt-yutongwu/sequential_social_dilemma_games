@@ -60,7 +60,6 @@ class HarvestEnv(MapEnv):
             grid = map_with_agents
             agent = HarvestAgent(agent_id, spawn_point, rotation, grid, view_len=HARVEST_VIEW_SIZE, time_out_duration=TIME_OUT_DURATION)
             self.agents[agent_id] = agent
-        # print("agent 0", self.agents["agent-0"])
 
     def custom_reset(self):
         """Initialize the walls and the apples"""
