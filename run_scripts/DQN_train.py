@@ -19,7 +19,6 @@ from ray.tune.registry import register_env
 from ray.rllib.algorithms.dqn import DQNConfig
 
 from custom_rl_mod import CustomCNNTorchRLModule
-from flatten_obs_env import FlattenDictObservationWrapper
 
 torch.cuda.set_device(1)
 device = torch.device("cuda")# if torch.cuda.is_available() else torch.device("cpu")
