@@ -26,7 +26,7 @@ def parse_args():
         "--env-name",
         type=str,
         default="harvest",
-        choices=["harvest", "cleanup"],
+        choices=["harvest", "cleanup", "harvest_test"],
         help="The SSD environment to use",
     )
     parser.add_argument(
@@ -89,10 +89,10 @@ class CustomLoggingCallback(RLlibCallback):
         self.ep_count += 1
     # Log custom information
     def on_episode_end(self, *, episode, metrics_logger, **kwargs):
-        # print("at episode end")
+        num_apples = episode.get_infos()["agent-0"][-1]["num_apples"]
+        metrics_logger.log_value("min_num_apples", value=num_apples, reduce='mean', window=1)
         for agent_id, agent_eps in episode.agent_episodes.items():
             info = agent_eps.get_infos()[-1]
-            # print(info)
             if info is None:
                 continue
             if "total_time_out_steps" in info:
@@ -101,6 +101,12 @@ class CustomLoggingCallback(RLlibCallback):
             if "reward_this_episode" in info:
                 rew = info["reward_this_episode"]
                 metrics_logger.log_value(f"{agent_id}/rew", value=rew, reduce='mean', window=1)
+            if "beam_attempt" in info:
+                beam = info["beam_attempt"]
+                metrics_logger.log_value(f"{agent_id}/beam_attempt", value=beam, reduce='mean', window=1)
+            if "successful_hit" in info:
+                succ_hit = info["successful_hit"]
+                metrics_logger.log_value(f"{agent_id}/succ_hit", value=succ_hit, reduce='mean', window=1)
 
 
 def env_creator(config):
@@ -148,7 +154,7 @@ def main(args):
     lr = 0.0001
     n_epochs = 30
     gae_lambda = 1.0
-    gamma = 0.99
+    gamma = 0.995
     target_kl = 0.01
     grad_clip = 40
     verbose = 3

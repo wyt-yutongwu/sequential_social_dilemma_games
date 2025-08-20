@@ -12,7 +12,31 @@ HARVEST_TEST_MAP = [
     "@AAAAAA@",
     "@@@@@@@@",
 ]
+HARVEST_MAP_PAPER = [
+    "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+    "@            A      AAAAA           A    @",
+    "@        A   AA         AAA        A  A  @",
+    "@     A AAA  AAA    A    A  A AAA AAAA   @",
+    "@ A  AAA A    A  A AAA  A  AAA A   A A   @",
+    "@AAA  A A    A  AAA A  AAA  A A       A  @",
+    "@ A A  AAA  AAA  A A    A A  AAA   AA AA @",
+    "@  AAA  A    A A  AAA    AAA  A     AAA  @",
+    "@   A         AAA  A      A          A   @",
+    "@  AAA    A    A               A    AAA  @",
+    "@   A  A AAA    A  A AAA      A  AAA A   @",
+    "@  A  AAA A    A  AAA A      AAA  A A    @",
+    "@ AAA  A A    AAA  A A        A A  AAA   @",
+    "@  A A  AAA    A A  AAA        AAA  A    @",
+    "@   AAA  A      AAA  A    A  A AAA       @",
+    "@    A       A  A AAA    A  AAA A        @",
+    "@A  AAA  A  A  AAA A    AAA  A A     P   @",
+    "@    A A   AAA  A A      A A  AAA   P  P @",
+    "@     AAA   A A  AAA      AAA  A  P      @",
+    "@ A    A     AAA  A        A       P P P @",
+    "@             A                  P  P  P @", 
+    "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@", 
 
+]
 HARVEST_MAP = [
     "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
     "@ P   P      A    P AAAAA    P  A P  @",

@@ -46,6 +46,11 @@ class CustomCNNTorchRLModule(TorchRLModule):
         
         # Q-value head
         self.q_value_head = nn.Linear(self.feature_size, action_space.n)
+        size_info = self.get_network_size_info()
+
+        print(f"Total parameters: {size_info['total_parameters']:,}")
+        print(f"Network depth: {size_info['network_depth']} layers")
+        print(f"Feature size: {size_info['feature_size']}")
         
     def _setup_obs_structure(self, model_config):
         """Setup observation structure from model config."""
@@ -55,7 +60,6 @@ class CustomCNNTorchRLModule(TorchRLModule):
         self.view_len = custom_config.get("view_len", 7)
         self.image_shape = (2 * self.view_len + 1, 2 * self.view_len + 1, 3)
         self.image_size = int(np.prod(self.image_shape))
-        
         # Agent features parameters
         self.has_agent_actions = custom_config.get("return_agent_actions", False)
         if self.has_agent_actions:
@@ -63,9 +67,15 @@ class CustomCNNTorchRLModule(TorchRLModule):
             self.agent_actions_size = self.num_agents - 1
             self.visible_agents_size = self.num_agents - 1
             self.prev_visible_size = self.num_agents - 1
+            self.agent_active_size = self.num_agents - 1
+            self.num_apples_size = 1
+            self.other_agent_reward_size = self.num_agents - 1
             self.agent_features_size = (self.agent_actions_size + 
                                      self.visible_agents_size + 
-                                     self.prev_visible_size)
+                                     self.prev_visible_size + 
+                                     self.agent_active_size +
+                                     self.num_apples_size +
+                                     self.other_agent_reward_size)
         else:
             self.agent_features_size = 0
         
@@ -90,7 +100,16 @@ class CustomCNNTorchRLModule(TorchRLModule):
             current_idx += self.visible_agents_size
             
             self.obs_indices["prev_visible_agents"] = (current_idx, current_idx + self.prev_visible_size)
-    
+            current_idx += self.prev_visible_size
+
+            self.obs_indices["other_agent_active"] = (current_idx, current_idx + self.agent_active_size)
+            current_idx += self.agent_active_size
+
+            self.obs_indices["num_apples_on_map"] = (current_idx, current_idx + self.num_apples_size)
+            current_idx += self.num_apples_size
+
+            self.obs_indices["other_agent_reward"] = (current_idx, current_idx + self.other_agent_reward_size)
+
     def _build_cnn_layers(self, model_config):
         """Build CNN layers for image processing."""
         conv_filters = model_config.get("conv_filters", [[32, [3, 3], 1], [64, [3, 3], 1]])
@@ -177,11 +196,10 @@ class CustomCNNTorchRLModule(TorchRLModule):
         
         # Extract agent features if they exist
         if self.has_agent_actions:
-            for key in ["other_agent_actions", "visible_agents", "prev_visible_agents"]:
+            for key in ["other_agent_actions", "visible_agents", "prev_visible_agents", "other_agent_active","num_apples_on_map","other_agent_reward"]:
                 if key in self.obs_indices:
                     start_idx, end_idx = self.obs_indices[key]
                     reconstructed_obs[key] = flattened_obs[:, start_idx:end_idx]
-        
         return reconstructed_obs
     
     def _process_image_obs(self, image_obs: TensorType) -> TensorType:
@@ -241,7 +259,7 @@ class CustomCNNTorchRLModule(TorchRLModule):
         if self.has_agent_actions:
             # Concatenate all agent features
             agent_features_list = []
-            for key in ["other_agent_actions", "visible_agents", "prev_visible_agents"]:
+            for key in ["other_agent_actions", "visible_agents", "prev_visible_agents", "other_agent_active","num_apples_on_map","other_agent_reward"]:
                 if key in reconstructed_obs:
                     agent_features_list.append(reconstructed_obs[key])
             
@@ -278,3 +296,38 @@ class CustomCNNTorchRLModule(TorchRLModule):
     def get_initial_state(self) -> Dict[str, TensorType]:
         """Get initial state (empty for DQN as it's not recurrent)."""
         return {}
+    
+    def get_network_size_info(self):
+        """Get comprehensive network size information."""
+        total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        
+        # Break down by component
+        cnn_params = sum(p.numel() for p in self.conv_layers.parameters() if p.requires_grad)
+        
+        if self.has_agent_actions:
+            agent_fc_params = sum(p.numel() for p in self.agent_fc_layers.parameters() if p.requires_grad)
+        else:
+            agent_fc_params = 0
+            
+        post_params = sum(p.numel() for p in self.post_layers.parameters() if p.requires_grad)
+        q_head_params = sum(p.numel() for p in self.q_value_head.parameters() if p.requires_grad)
+        
+        return {
+            'total_parameters': total_params,
+            'cnn_parameters': cnn_params,
+            'agent_fc_parameters': agent_fc_params,
+            'post_layer_parameters': post_params,
+            'q_head_parameters': q_head_params,
+            'network_depth': self._get_network_depth(),
+            'feature_size': self.feature_size,
+            'cnn_output_size': self.cnn_output_size
+        }
+
+    def _get_network_depth(self):
+        """Calculate total number of layers."""
+        depth = len([m for m in self.conv_layers if isinstance(m, nn.Conv2d)])
+        if self.has_agent_actions:
+            depth += len([m for m in self.agent_fc_layers if isinstance(m, nn.Linear)])
+        depth += len([m for m in self.post_layers if isinstance(m, nn.Linear)])
+        depth += 1  # Q-value head
+        return depth

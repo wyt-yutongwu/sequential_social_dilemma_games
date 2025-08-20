@@ -178,6 +178,8 @@ class HarvestAgent(Agent):
         self.update_agent_rot(start_orientation)
         self.time_out_remaining = 0
         self.time_out_duration = time_out_duration
+        self.beam_attempt = 0
+        self.successful_hit = 0
 
     # Ugh, this is gross, this leads to the actions basically being
     # defined in two places
@@ -199,17 +201,26 @@ class HarvestAgent(Agent):
             self.time_out_this_turn += self.time_out_duration
             self.active = False
 
+    def get_beam_attemp(self):
+        return self.beam_attempt
+    
+    def get_successful_hit(self):
+        return self.successful_hit
+
     def fire_beam(self, char, hit_agent_rep):
         if self.time_out_remaining > 0:
             print("Error in fire beam")
         # deducts reputation when a good agent (reputation >= 0) is hit
         # increase reputation when a bad agent (reputation < 0) is hit 
         if char == b"F":
+            self.beam_attempt += 1
             if hit_agent_rep is None:
                 return
             elif hit_agent_rep >= 0:
+                self.successful_hit += 1
                 self.reputation -= 1
             else:
+                self.successful_hit += 1
                 self.reputation += 1
 
     def get_done(self):

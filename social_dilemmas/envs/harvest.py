@@ -12,7 +12,7 @@ TIME_OUT_DURATION = 25
 # Add custom actions to the agent
 _HARVEST_ACTIONS = {"FIRE": 5}  # length of firing range
 
-SPAWN_PROB = [0, 0.005, 0.02, 0.05]
+SPAWN_PROB = [0.001, 0.005, 0.02, 0.05]
 
 HARVEST_VIEW_SIZE = 7
 

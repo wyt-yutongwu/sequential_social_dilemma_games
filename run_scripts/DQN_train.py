@@ -3,10 +3,7 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-from ray.rllib.core.columns import Columns
-from ray.rllib.algorithms.dqn.torch.default_dqn_torch_rl_module import (
-                DefaultDQNTorchRLModule,
-            )
+
 import argparse
 from ray.rllib.core.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
@@ -31,7 +28,7 @@ def parse_args():
         "--env-name",
         type=str,
         default="harvest",
-        choices=["harvest", "cleanup","harvest_test"],
+        choices=["harvest", "cleanup","harvest_test","harvest_paper"],
         help="The SSD environment to use",
     )
     parser.add_argument(
@@ -68,7 +65,7 @@ def parse_args():
     parser.add_argument(
         "--alpha",
         type=float,
-        default=5,
+        default=0.6,
         help="Advantageous inequity aversion factor",
     )
     parser.add_argument(
@@ -94,6 +91,8 @@ class CustomLoggingCallback(RLlibCallback):
         self.ep_count += 1
     # Log custom information
     def on_episode_end(self, *, episode, metrics_logger, **kwargs):
+        num_apples = episode.get_infos()["agent-0"][-1]["num_apples"]
+        metrics_logger.log_value("min_num_apples", value=num_apples, reduce='mean', window=1)
         for agent_id, agent_eps in episode.agent_episodes.items():
             info = agent_eps.get_infos()[-1]
             if info is None:
@@ -104,11 +103,17 @@ class CustomLoggingCallback(RLlibCallback):
             if "reward_this_episode" in info:
                 rew = info["reward_this_episode"]
                 metrics_logger.log_value(f"{agent_id}/rew", value=rew, reduce='mean', window=1)
+            if "beam_attempt" in info:
+                beam = info["beam_attempt"]
+                metrics_logger.log_value(f"{agent_id}/beam_attempt", value=beam, reduce='mean', window=1)
+            if "successful_hit" in info:
+                succ_hit = info["successful_hit"]
+                metrics_logger.log_value(f"{agent_id}/succ_hit", value=succ_hit, reduce='mean', window=1)
 
 def env_creator(config):
     env = multi_agent_env(
         max_cycles=config.get("rollout_len", 1000),
-        env=config.get("env_name", "cleanup"),
+        env=config.get("env_name", "harvest"),
         num_agents=config.get("num_agents", 5),
         use_collective_reward=config.get("use_collective_reward", False),
         inequity_averse_reward=config.get("inequity_averse_reward", False),
@@ -137,22 +142,11 @@ def main(args):
     use_reputation = args.use_reputation
 
     # Training
-    num_cpus = 4  # number of cpus
-    num_envs = 12  # number of parallel multi-agent environments
+    num_envs = 4  # number of parallel multi-agent environments
     num_frames = 6  # number of frames to stack together; use >4 to avoid automatic VecTransposeImage
-    features_dim = (
-        128  # output layer of cnn extractor AND shared layer for policy and value functions
-    )
-    fcnet_hiddens = [1024, 128]  # Two hidden layers for cnn extractor
-    ent_coef = 0.001  # entropy coefficient in loss
     batch_size = rollout_len * num_envs // 2  # This is from the rllib baseline implementation
     lr = 0.0001
-    n_epochs = 30
-    gae_lambda = 1.0
-    gamma = 0.99
-    target_kl = 0.01
-    grad_clip = 40
-    verbose = 3
+    gamma = 0.995
 
     env = env_creator({
     "env_name": env_name,
@@ -230,12 +224,16 @@ def main(args):
                 "return_agent_actions": True,
             },
             # CNN configuration for image processing
-            "conv_filters": [[32, [3, 3], 1], [64, [3, 3], 1]],
+            "conv_filters": [
+            [256, [3, 3], 1],
+            [512, [3, 3], 1],
+            [512, [3, 3], 1],
+            [256, [3, 3], 1],
+            [128, [3, 3], 1]   # 5 conv layers total
+        ],
             "conv_activation": "relu",
-            # Agent feature processing configuration
-            "agent_fc_hiddens": [64],
-            # Post-processing configuration
-            "post_fcnet_hiddens": [256],
+            "agent_fc_hiddens": [512, 256, 128, 64], 
+            "post_fcnet_hiddens": [2048, 1024, 512, 256], 
             "post_fcnet_activation": "relu",
         }) for p in policies},
         ))
@@ -248,7 +246,7 @@ def main(args):
     algo = config.build_algo()
     for i in range(int(total_timesteps)):
         result = algo.train()
-        if i % 10 == 0:
+        if i % 100 == 0:
             print(i)
     save_path = os.path.join(checkpoint_dir, f"PPO_{args.env_name}_{i}")
     algo.save(save_path)
