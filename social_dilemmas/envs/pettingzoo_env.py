@@ -12,7 +12,7 @@ from pettingzoo import ParallelEnv
 
 from social_dilemmas.envs.env_creator import get_env_creator
 
-MAX_CYCLES = 1000
+MAX_CYCLES = 10
 
 
 def parallel_env(max_cycles=MAX_CYCLES, **ssd_args):

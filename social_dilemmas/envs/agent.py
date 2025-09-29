@@ -181,6 +181,7 @@ class HarvestAgent(Agent):
         self.beam_attempt = 0
         self.successful_hit = 0
 
+
     # Ugh, this is gross, this leads to the actions basically being
     # defined in two places
     def action_map(self, action_number):

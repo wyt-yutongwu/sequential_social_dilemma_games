@@ -4,12 +4,34 @@
 # 'A' means apple spawn point
 # ' ' is empty space
 
+HARVEST_SIMPLE = [
+    "@@@@@",
+    "@ A @",
+    "@ P @",
+    "@   @",
+    "@@@@@",
+]
+
+
+HARVEST_SINGLE_AGENT = [
+    "@@@@@@@@@@@@@@@@@@@@@@@@@@",
+    "@  A    A    A    A    A @",
+    "@ AAA  AAA  AAA  AAA  AAA@",
+    "@  A    A    A    A    A @",
+    "@                        @",
+    "@    A    A    A    A    @",
+    "@   AAA  AAA  AAA  AAA   @",
+    "@    A    A    A    A   P@",
+    "@@@@@@@@@@@@@@@@@@@@@@@@@@",
+]
+
+
 HARVEST_TEST_MAP = [
     "@@@@@@@@",
-    "@PPAAAA@",
-    "@AAAAAA@",
-    "@AAAAAA@",
-    "@AAAAAA@",
+    "@PP  A @",
+    "@A  AAA@",
+    "@AA  A @",
+    "@A  AAA@",
     "@@@@@@@@",
 ]
 HARVEST_MAP_PAPER = [

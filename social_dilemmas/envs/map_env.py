@@ -20,7 +20,15 @@ _MAP_ENV_ACTIONS = {
 # Positive Theta is in the counterclockwise direction
 
 ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
-
+BASE_ACTIONS = {
+    0: "MOVE_LEFT",  # Move left
+    1: "MOVE_RIGHT",  # Move right
+    2: "MOVE_UP",  # Move up
+    3: "MOVE_DOWN",  # Move down
+    4: "STAY",  # don't move
+    5: "TURN_CLOCKWISE",  # Rotate counter clockwise
+    6: "TURN_COUNTERCLOCKWISE",
+}  # Rotate clockwise
 DEFAULT_COLOURS = {
     b" ": np.array([0, 0, 0], dtype=np.uint8),  # Black background
     b"0": np.array([0, 0, 0], dtype=np.uint8),  # Black background beyond map walls
@@ -72,6 +80,7 @@ class MapEnv(MultiAgentEnv):
         alpha=0.0,
         beta=0.0,
         min_num_apples = 10000,
+        count = 0
     ):
         """
 
@@ -89,7 +98,7 @@ class MapEnv(MultiAgentEnv):
         return_agent_actions: bool
             If true, the observation space will include the actions of other agents
         """
-        
+        self.debug = False
         self.min_num_apples = min_num_apples
         self._num_agents = num_agents 
         self.base_map = self.ascii_to_numpy(ascii_map)
@@ -103,6 +112,10 @@ class MapEnv(MultiAgentEnv):
         self.beta = beta
         self.all_actions = _MAP_ENV_ACTIONS.copy()
         self.all_actions.update(extra_actions)
+        self.count = 0
+        self.num_spawn_apples = 0
+        self.dist_agent_to_apple = 1
+        self.ep_count = 0
         # Map without agents or beams
         self.world_map = np.full(
             (len(self.base_map), len(self.base_map[0])), fill_value=b" ", dtype="c"
@@ -146,7 +159,12 @@ class MapEnv(MultiAgentEnv):
                 dtype=np.float32,
             )
         }
-        
+        obs_space = Box(
+                low=0,
+                high=1,
+                shape=(2 * self.view_len + 1, 2 * self.view_len + 1, 3),
+                dtype=np.float32,
+            )
         if self.return_agent_actions:
             # Append the actions of other agents
             obs_space = {
@@ -195,21 +213,9 @@ class MapEnv(MultiAgentEnv):
                 #     dtype=np.float32,
                 # ),
             }
-        obs_space = Dict(obs_space)
-        total_dim = flatdim(obs_space)
-    # Create flattened observation space
-    # We need to determine the appropriate low/high bounds for the flattened space
-        flattened_obs_space = Box(
-            low=-np.inf,  # Use -inf for safety, or calculate actual bounds
-            high=np.inf,   # Use inf for safety, or calculate actual bounds
-            shape=(total_dim,),
-            dtype=np.float32,  # Use float32 for neural networks
-        )
-        # Change dtype so that ray can put all observations into one flat batch
-        # with the correct dtype.
-        # See DictFlatteningPreprocessor in ray/rllib/models/preprocessors.py.
-        # obs_space.dtype = np.uint8
-        return flattened_obs_space
+        # obs_space = Dict(obs_space)
+        print("obs_space", obs_space)
+        return obs_space
 
     def custom_reset(self):
         """Reset custom elements of the map. For example, spawn apples and build walls"""
@@ -275,6 +281,11 @@ class MapEnv(MultiAgentEnv):
         dones: dict indicating whether each agent is done
         info: dict to pass extra info to gym
         """
+        self.count += 1
+        if self.ep_count >= 500 and self.debug:
+            print("===== step =====")
+            print("map is")
+            print(self.get_map_with_agents())
         # Update time_out time for the agent
         for agent in self.agents.values():
             agent.update_time_out()
@@ -325,7 +336,8 @@ class MapEnv(MultiAgentEnv):
         self.min_num_apples = min(num_apples, self.min_num_apples)
         for agent in self.agents.values():
             agent.full_map = map_with_agents
-            rgb_arr = self.color_view(agent)
+            rgb_arr = self.color_view(agent) / 255.0
+
             # concatenate on the prev_actions to the observations
             if self.return_agent_actions:
                 prev_actions = np.array(
@@ -355,12 +367,25 @@ class MapEnv(MultiAgentEnv):
                     observations[agent.agent_id] = self.timed_out_obs()
                 agent.prev_visible_agents = visible_agents
             else:
-                observations[agent.agent_id] = {"curr_obs": rgb_arr}
-                # observations[agent.agent_id] = rgb_arr
+                observations[agent.agent_id] = rgb_arr#{"curr_obs": rgb_arr}
             # Return rewards so far, and cumulative timed out time
             reward, reward_so_far = agent.compute_reward()
+            # distance_this_turn = self.distance_to_apple()
+            if self.ep_count >= 500 and self.debug:
+                print("previous dist to apple: ", self.dist_agent_to_apple)
+
             rewards[agent.agent_id] = reward
-            dones[agent.agent_id] = agent.get_done()
+            if self.ep_count >= 500 and self.debug:
+                print("action is: ",BASE_ACTIONS[actions["agent-0"]])
+                print("reward is:", rewards)
+                print("new map is:")
+                print(self.get_map_with_agents())
+                print("observation is: ")
+                print(observations[agent.agent_id])
+                print("new dist to apple:", self.dist_agent_to_apple)
+                
+
+            dones[agent.agent_id] = False
             time_out = agent.compute_time_out()
             beam_attempt = agent.get_beam_attemp()
             successful_hit = agent.get_successful_hit()
@@ -378,36 +403,38 @@ class MapEnv(MultiAgentEnv):
                     "num_apples": self.min_num_apples,
                     "beam_attempt": beam_attempt,
                     "successful_hit": successful_hit,
+                    "spawned_apples": self.num_spawn_apples
                 }
     
-        for agent in self.agents.values():
-            rew_list = self.find_other_agent_reward(infos, agent.agent_id)
-            observations[agent.agent_id]["other_agent_reward"] = rew_list
-
-        if self.use_collective_reward:
-            collective_reward = sum(rewards.values())
-            for agent in rewards.keys():
-                rewards[agent] = collective_reward
-        if self.inequity_averse_reward:
-            print("in inequity")
-            assert self.num_agents > 1, "Cannot use inequity aversion with only one agent!"
-            temp_rewards = rewards.copy()
-            for agent in rewards.keys():
-                diff = np.array([r - rewards[agent] for r in rewards.values()])
-                dis_inequity = self.alpha * sum(diff[diff > 0])
-                adv_inequity = self.beta * sum(diff[diff < 0])
-                temp_rewards[agent] -= (dis_inequity + adv_inequity) / (self.num_agents - 1)
-            rewards = temp_rewards
+        # for agent in self.agents.values():
+        #     rew_list = self.find_other_agent_reward(infos, agent.agent_id)
+        #     observations[agent.agent_id]["other_agent_reward"] = rew_list
 
         dones["__all__"] = np.any(list(dones.values()))
         episode_done = dones["__all__"]
-        flat_obs = {}
-        for agent in observations.keys():
-            flat_obs[agent] = flatten_observation(observations[agent])
         # Set truncated to match episode end, explicitly specifying truncation
         trunc = {agent_id: episode_done for agent_id in dones}
         trunc["__all__"] = episode_done
-        return flat_obs, rewards, dones, trunc,infos
+        # if self.count < 50:
+        #     self.render(BASE_ACTIONS[actions["agent-0"]]+","+str(rewards["agent-0"]),f"/home/yw180/img/{self.count}.jpg")
+        # print(self.count)
+
+        return observations, rewards, dones, trunc,infos
+    
+    def simple_obs(self):
+        arr = np.zeros(4, dtype = np.float32)
+        count= 0
+        map = self.get_map_with_agents()
+        for i in range(1,3):
+            for j in range(1,3):
+                if map[i,j] == b"A":
+                    arr[count] = 1.0
+                elif map[i,j] == b"1":
+                    arr[count] = 2
+                count += 1
+        return arr
+
+
 
     def reset(self):
         """Reset the environment.
@@ -421,17 +448,31 @@ class MapEnv(MultiAgentEnv):
             the initial observation of the space. The initial reward is assumed
             to be zero.
         """
+        info = {}
+        for agent in self.agents.values():
+            reward, reward_so_far = agent.compute_reward()
+            time_out = agent.compute_time_out()
+            beam_attempt = agent.get_beam_attemp()
+            beam_success = agent.get_successful_hit()
+            info[agent.agent_id] = [reward_so_far, time_out,beam_attempt,beam_success,self.min_num_apples]
+        if self.ep_count >= 500 and self.debug:
+            print("reset")
+        self.ep_count += 1
         self.beam_pos = []
         self.agents = {}
         self.setup_agents()
         self.reset_map()
+        self.min_num_apples = 10000
         self.custom_map_update()
+        self.num_spawn_apples = 0
+        self.count = 0
         map_with_agents = self.get_map_with_agents()
-
+        self.dist_agent_to_apple = self.distance_to_apple()
         observations = {}
         for agent in self.agents.values():
             agent.full_map = map_with_agents
-            rgb_arr = self.color_view(agent)
+            rgb_arr = self.color_view(agent) / 255.0
+
             # concatenate on the prev_actions to the observations
             if self.return_agent_actions:
                 # No previous actions so just pass in "wait" action
@@ -450,12 +491,8 @@ class MapEnv(MultiAgentEnv):
                 }
                 agent.prev_visible_agents = visible_agents
             else:
-                observations[agent.agent_id] = {"curr_obs": rgb_arr}
-        info = {agent_id: {} for agent_id in observations}
-        flat_obs = {}
-        for agent in observations.keys():
-            flat_obs[agent] = flatten_observation(observations[agent])
-        return flat_obs, info
+                observations[agent.agent_id] = rgb_arr#{"curr_obs": rgb_arr}
+        return observations, info
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -580,7 +617,7 @@ class MapEnv(MultiAgentEnv):
 
         return rgb_arr
 
-    def render(self, filename=None, mode="human"):
+    def render(self, title, filename=None,mode="human"):
         """Creates an image of the map to plot or save.
 
         Args:
@@ -590,6 +627,7 @@ class MapEnv(MultiAgentEnv):
         rgb_arr = self.full_map_to_colors()
         if mode == "human":
             plt.cla()
+            plt.title(title)
             plt.imshow(rgb_arr, interpolation="nearest")
             if filename is None:
                 plt.show(block=False)
@@ -1040,7 +1078,27 @@ class MapEnv(MultiAgentEnv):
             if id != agent_id:
                 output.append(self.agents[agent_id].active)
         return output
-
+    
+    def distance_to_apple(self):
+        agent_pos = list()
+        apple_pos = list()
+        map = self.get_map_with_agents()
+        if self.ep_count >= 500 and self.debug:
+            print("=====in distance to apple=====")
+            print(" map is:")
+            print(map)
+        for i in range(0, len(map)):
+            for j in range(0, len(map[0])):
+                if map[i,j] == b"1":
+                    agent_pos = [i,j]
+                    if self.ep_count >= 500 and self.debug:
+                        print("agent pos is:", agent_pos)
+                elif map[i,j] == b"A":
+                    apple_pos = [i,j]
+                    if self.ep_count >= 500 and self.debug:
+                        print("apple pos is:", apple_pos)
+        return abs(apple_pos[0] - agent_pos[0]) + abs((apple_pos[1] - agent_pos[1]))
+    
     def find_visible_agents(self, agent_id):
         """Returns all the agents that can be seen by agent with agent_id
         Args
@@ -1110,29 +1168,3 @@ class MapEnv(MultiAgentEnv):
     @staticmethod
     def get_environment_callbacks():
         return DefaultCallbacks
-
-
-def flatten_observation(obs_dict):
-    obs_keys = ["curr_obs","other_agent_actions","visible_agents","prev_visible_agents","other_agent_active","num_apples_on_map","other_agent_reward"]
-    """Flatten nested observation dictionary."""
-    flattened_parts = []
-    # Process in consistent order
-    for key in obs_keys:
-        value = obs_dict[key]
-        if key =="curr_obs":
-            flattened_parts.append(np.array(value).flatten())
-        elif isinstance(value, (list, tuple)):
-            flattened_parts.append(np.array(value).flatten())
-        elif isinstance(value, np.ndarray):
-            flattened_parts.append(value.flatten())
-        else:
-            flattened_parts.append(np.array([value]).flatten())
-    
-    ret_arr = np.concatenate(flattened_parts)
-    return ret_arr
-
-def validate_obs_and_reward(obs, reward):
-    if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
-        print("BAD OBS:", obs)
-    if np.isnan(reward) or np.isinf(reward):
-        print("BAD REWARD:", reward)
